@@ -1,0 +1,68 @@
+name: CI
+
+# Build and test every service on each push and pull request
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.service }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: user-service
+            db: ecommerce_user_db
+          - service: product-service
+            db: ecommerce_product_db
+          - service: inventory-service
+            db: ecommerce_inventory_db
+          - service: order-service
+            db: ecommerce_order_db
+
+    # Real Postgres so the Spring contextLoads() test can start the full app
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ${{ matrix.db }}
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # Dummy values for CI only. Real secrets never live in the repo.
+    env:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/${{ matrix.db }}
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      JWT_SECRET: ci-only-dummy-jwt-secret-at-least-32-characters-long
+      INTERNAL_SERVICE_KEY: ci-only-dummy-internal-key
+
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+          cache-dependency-path: ${{ matrix.service }}/pom.xml
+
+      - name: Build and run all tests
+        run: ./mvnw -B verify
